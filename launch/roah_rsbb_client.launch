@@ -4,7 +4,7 @@
 
     <param name="current_zone" type="string" value="Testing TestingTeam"/>
 
-    <node pkg="rqt_gui" type="rqt_gui" name="roah_rsbb_gui" respawn="true" args="--perspective-file $(find roah_rsbb)/roah_rsbb.perspective -l -f"/>
+    <node pkg="rqt_gui" type="rqt_gui" name="roah_rsbb_gui" respawn="true" args=" --clear-config --perspective-file $(find roah_rsbb)/roah_rsbb.perspective -l -f"/>
 
     <node pkg="roah_rsbb" type="shutdown_service" name="roah_rsbb_shutdown" required="true"/>
 

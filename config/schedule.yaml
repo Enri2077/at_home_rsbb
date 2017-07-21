@@ -3,6 +3,7 @@
 
 - zone: Testing TestingTeam
   schedule:
+    - { benchmark: STB,   round: 1, run: 1, scheduled_time: 2015-12-31 00:05:00, team: TestingTeam }
     - { benchmark: HGTKMH, round: 1, run: 1, scheduled_time: 2015-12-31 00:00:00, team: TestingTeam }
     - { benchmark: HWV,    round: 1, run: 1, scheduled_time: 2015-12-31 00:01:00, team: TestingTeam }
     - { benchmark: HCFGAC, round: 1, run: 1, scheduled_time: 2015-12-31 00:02:00, team: TestingTeam }

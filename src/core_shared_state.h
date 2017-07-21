@@ -176,6 +176,7 @@ struct ScoringItem {
 
 struct Benchmark {
   string name;
+  string prefix;
   string desc;
   string code;
   Duration timeout;
@@ -225,6 +226,9 @@ class Benchmarks
         b.desc = benchmark_node["desc"].as<string>();
         b.code = benchmark_node["code"].as<string>();
         b.timeout = Duration (benchmark_node["timeout"].as<double>());
+
+        if(benchmark_node["prefix"]) b.prefix = benchmark_node["prefix"].as<string>();
+
         if (benchmark_node["total_timeout"]) {
           b.total_timeout = Duration (benchmark_node["total_timeout"].as<double>());
         }

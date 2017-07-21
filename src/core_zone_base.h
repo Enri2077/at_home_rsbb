@@ -34,19 +34,27 @@ struct Event {
   unsigned round;
   unsigned run;
   Time scheduled_time;
+
   // Duration interval_time;
 
   Event (YAML::Node const& event_node)
   {
-    benchmark_code = yamlschedget<string> (event_node, "benchmark");
+	benchmark_code = yamlschedget<string> (event_node, "benchmark");
     team = yamlschedget<string> (event_node, "team");
     round = yamlschedget<unsigned> (event_node, "round");
     run = yamlschedget<unsigned> (event_node, "run");
     scheduled_time = Time::fromBoost (boost::posix_time::time_from_string (yamlschedget<string> (event_node, "scheduled_time")));
     // interval_time = Duration (yamlschedget<double> (event_node, "interval_time"));
   }
+
+
 };
 
+std::ostream& operator<<(std::ostream& os, const Event& e)
+{
+  os << "benchmark_code: " << e.benchmark_code << ", team: " << e.team << ", round: " << e.round << ", run: " << e.run;
+  return os;
+}
 
 
 class DisplayText

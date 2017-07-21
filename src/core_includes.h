@@ -41,9 +41,12 @@
 #include <std_msgs/UInt8.h>
 #include <std_srvs/Empty.h>
 
-#include <rockin_benchmarking/BmBoxState.h>
-#include <rockin_benchmarking/ClientState.h>
-#include <rockin_benchmarking/RefBoxState.h>
+#include <rsbb_benchmarking_messages/BmBoxState.h>
+//#include <rsbb_benchmarking_messages/ClientState.h>
+#include <rsbb_benchmarking_messages/RefBoxState.h>
+#include <rsbb_benchmarking_messages/ExecuteManualOperation.h>
+#include <rsbb_benchmarking_messages/ExecuteGoal.h>
+#include <rsbb_benchmarking_messages/EndBenchmark.h>
 #include <roah_devices/Bool.h>
 #include <roah_devices/DevicesState.h>
 #include <roah_devices/Percentage.h>

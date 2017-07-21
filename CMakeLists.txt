@@ -10,7 +10,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   std_srvs
   roah_devices
-  rockin_benchmarking
+  rsbb_benchmarking_messages
 )
 
 add_definitions("-std=c++0x")
@@ -77,7 +77,7 @@ generate_messages(
 catkin_package(
 #  INCLUDE_DIRS include
 LIBRARIES rqt_roah_rsbb
-CATKIN_DEPENDS message_runtime std_msgs roah_devices rockin_benchmarking # roscpp
+CATKIN_DEPENDS message_runtime std_msgs roah_devices rsbb_benchmarking_messages # roscpp
 #  DEPENDS system_lib
 )
 

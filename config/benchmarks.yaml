@@ -59,16 +59,25 @@
       - { type: uint, desc: "The robot damages or destroys the objects requested to manipulate." }
       - { type: uint, desc: "The robot damages the test bed." }
 - name: RoCKIn@Home Functionality Benchmark 1
+  prefix: fbm1h
   desc: Object Perception Functionality
   code: HOPF
   timeout: 600.000
   total_timeout: 600.000
 - name: RoCKIn@Home Functionality Benchmark 2
+  prefix: fbm2h
   desc: Navigation Functionality
   code: HNF
   timeout: 90.0 #120.0
   total_timeout: 3600.0
 - name: RoCKIn@Home Functionality Benchmark 3
+  prefix: fbm3h
   desc: Speech Understanding Functionality
   code: HSUF
   timeout: 120.000
+- name: Simple Test Benchmark 
+  prefix: stb
+  desc: Simple Test Benchmark
+  code: STB
+  timeout: 120.000
+
