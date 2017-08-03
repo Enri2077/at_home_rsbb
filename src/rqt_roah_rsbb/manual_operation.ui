@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>227</width>
-    <height>129</height>
+    <height>213</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -18,6 +18,16 @@
     <widget class="QPlainTextEdit" name="mo">
      <property name="readOnly">
       <bool>true</bool>
+     </property>
+     <property name="plainText">
+      <string/>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPlainTextEdit" name="mo_result">
+     <property name="readOnly">
+      <bool>false</bool>
      </property>
      <property name="plainText">
       <string/>

@@ -54,7 +54,7 @@ add_message_files(FILES ${MESSAGE_FILES})
 
 ## Generate services in the 'srv' folder
 file(GLOB SERVICE_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/srv ${CMAKE_CURRENT_SOURCE_DIR}/srv/*.srv)
-add_service_files(FILES ${SERVICE_FILES})
+add_service_files(FILES ${SERVICE_FILES}) 
 
 # Generate added messages and services with any dependencies listed here
 generate_messages(

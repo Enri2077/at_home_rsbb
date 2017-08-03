@@ -29,6 +29,7 @@
 #include <ros_roah_rsbb.h>
 
 #include <roah_rsbb/Zone.h>
+#include <roah_rsbb/ZoneManualOperationResult.h>
 
 #include <std_srvs/Empty.h>
 
@@ -103,8 +104,10 @@ namespace rqt_roah_rsbb
 
   void ManualOperation::complete()
   {
-    roah_rsbb::Zone z;
+    roah_rsbb::ZoneManualOperationResult z;
     z.request.zone = param_direct ("current_zone", string());
+    z.request.manual_operation_result = ui_.mo_result->toPlainText().toStdString();
+    ui_.mo_result->setPlainText("");
     call_service ("/core/manual_operation_complete", z);
   }
 }

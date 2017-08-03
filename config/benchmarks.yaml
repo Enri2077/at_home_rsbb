@@ -79,5 +79,6 @@
   prefix: stb
   desc: Simple Test Benchmark
   code: STB
-  timeout: 120.000
+  timeout: 30.000
+  total_timeout: 90.0
 

@@ -42,7 +42,6 @@
 #include <std_srvs/Empty.h>
 
 #include <rsbb_benchmarking_messages/BmBoxState.h>
-//#include <rsbb_benchmarking_messages/ClientState.h>
 #include <rsbb_benchmarking_messages/RefBoxState.h>
 #include <rsbb_benchmarking_messages/ExecuteManualOperation.h>
 #include <rsbb_benchmarking_messages/ExecuteGoal.h>
@@ -54,6 +53,7 @@
 #include <roah_rsbb/CoreToPublic.h>
 #include <roah_rsbb/RobotInfo.h>
 #include <roah_rsbb/Zone.h>
+#include <roah_rsbb/ZoneManualOperationResult.h>
 #include <roah_rsbb/ZoneState.h>
 #include <roah_rsbb/ZoneUInt8.h>
 #include <roah_rsbb/ZoneScore.h>

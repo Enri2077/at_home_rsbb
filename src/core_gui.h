@@ -97,15 +97,15 @@ class CoreGui
     }
 
     bool
-    manual_operation_complete_callback (roah_rsbb::Zone::Request& req,
-                                        roah_rsbb::Zone::Response& res)
+    manual_operation_complete_callback (roah_rsbb::ZoneManualOperationResult::Request& req,
+                                        roah_rsbb::ZoneManualOperationResult::Response& res)
     {
       Zone::Ptr zone = zone_manager_.get (req.zone);
       if (! zone) {
         ROS_WARN_STREAM ("manual_operation_complete_callback: Could not find zone: " << req.zone);
         return false;
       }
-      zone->manual_operation_complete();
+      zone->manual_operation_complete(req.manual_operation_result);
       return true;
     }
 
