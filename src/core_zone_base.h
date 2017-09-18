@@ -24,374 +24,279 @@
 
 #include "core_shared_state.h"
 
-
-
 struct Event {
-  string benchmark_code;
-  Benchmark benchmark;
-  string team;
-  string password;
-  unsigned round;
-  unsigned run;
-  Time scheduled_time;
+	string benchmark_code;
+	Benchmark benchmark;
+	string team;
+	string password;
+	unsigned round;
+	unsigned run;
+	Time scheduled_time;
 
-  // Duration interval_time;
+	// Duration interval_time;
 
-  Event (YAML::Node const& event_node)
-  {
-	benchmark_code = yamlschedget<string> (event_node, "benchmark");
-    team = yamlschedget<string> (event_node, "team");
-    round = yamlschedget<unsigned> (event_node, "round");
-    run = yamlschedget<unsigned> (event_node, "run");
-    scheduled_time = Time::fromBoost (boost::posix_time::time_from_string (yamlschedget<string> (event_node, "scheduled_time")));
-    // interval_time = Duration (yamlschedget<double> (event_node, "interval_time"));
-  }
-
+	Event(YAML::Node const& event_node) {
+		benchmark_code = yamlschedget<string>(event_node, "benchmark");
+		team = yamlschedget<string>(event_node, "team");
+		round = yamlschedget<unsigned>(event_node, "round");
+		run = yamlschedget<unsigned>(event_node, "run");
+		scheduled_time = Time::fromBoost(boost::posix_time::time_from_string(yamlschedget<string>(event_node, "scheduled_time")));
+		// interval_time = Duration (yamlschedget<double> (event_node, "interval_time"));
+	}
 
 };
 
-std::ostream& operator<<(std::ostream& os, const Event& e)
-{
-  os << "benchmark_code: " << e.benchmark_code << ", team: " << e.team << ", round: " << e.round << ", run: " << e.run;
-  return os;
+std::ostream& operator<<(std::ostream& os, const Event& e) {
+	os << "benchmark_code: " << e.benchmark_code << ", team: " << e.team << ", round: " << e.round << ", run: " << e.run;
+	return os;
 }
 
+class DisplayText: boost::noncopyable {
+	ostringstream text_;
+	string last_;
 
-class DisplayText
-  : boost::noncopyable
-{
-    ostringstream text_;
-    string last_;
+public:
+	DisplayText() {
+	}
 
-  public:
-    DisplayText()
-    {
-    }
+	void add(Time const& now, string const& msg) {
+		if (msg == last_) {
+			return;
+		}
 
-    void
-    add (Time const& now,
-         string const& msg)
-    {
-      if (msg == last_) {
-        return;
-      }
+		last_ = msg;
 
-      last_ = msg;
+		text_ << endl;
+		text_ << " - " << to_string(now);
+		//text_ << endl;
+		text_ << " - ";
+		text_ << msg;
+	}
 
-      text_ << endl;
-      text_ << " - " << to_string (now);
-      //text_ << endl;
-      text_ << " - ";
-      text_ << msg;
-    }
+	void add(string const& msg) {
+		add(Time::now(), msg);
+	}
 
-    void
-    add (string const& msg)
-    {
-      add (Time::now(), msg);
-    }
+	string str() {
+		return text_.str();
+	}
 
-    string
-    str()
-    {
-      return text_.str();
-    }
-
-    string
-    last (size_t length = 1)
-    {
-      string ret = text_.str();
-      if (length >= ret.size()) {
-        return ret;
-      }
-      return ret.substr (ret.size() - length);
-    }
+	string last(size_t length = 1) {
+		string ret = text_.str();
+		if (length >= ret.size()) {
+			return ret;
+		}
+		return ret.substr(ret.size() - length);
+	}
 };
 
+class RsbbLog: boost::noncopyable {
+	rosbag::Bag bag_;
+	DisplayText& display_text_;
 
+public:
+	RsbbLog(string const& team, unsigned round, unsigned run, string const& uuid, DisplayText& display_text) :
+			display_text_(display_text) {
+		string log_dir = param_direct<string>("~log_dir", ".");
+		system(string("mkdir -p " + log_dir).c_str());
 
-class RsbbLog
-  : boost::noncopyable
-{
-    rosbag::Bag bag_;
-    DisplayText& display_text_;
+		ostringstream o;
+		o << log_dir << "/online_log_";
+		o << to_string(Time::now());
+		o << "_" << team << "_round" << round << "_run" << run;
+		o << "_" << uuid << ".bag";
+		bag_.open(o.str(), rosbag::bagmode::Write);
+	}
 
-  public:
-    RsbbLog (string const& team,
-             unsigned round,
-             unsigned run,
-             string const& uuid,
-             DisplayText& display_text)
-      : display_text_ (display_text)
-    {
-      string log_dir = param_direct<string> ("~log_dir", ".");
-      system (string ("mkdir -p " + log_dir).c_str());
+	~RsbbLog() {
+		bag_.close();
+	}
 
-      ostringstream o;
-      o << log_dir << "/online_log_";
-      o << to_string (Time::now());
-      o << "_" << team << "_round" << round << "_run" << run;
-      o << "_" << uuid << ".bag";
-      bag_.open (o.str(), rosbag::bagmode::Write);
-    }
+	void log_empty(string const& topic, Time const& time) {
+		std_msgs::Empty msg;
+		bag_.write(topic, time, msg);
 
-    ~RsbbLog()
-    {
-      bag_.close();
-    }
+		display_text_.add(time, topic);
+	}
 
-    void
-    log_empty (string const& topic,
-               Time const& time)
-    {
-      std_msgs::Empty msg;
-      bag_.write (topic, time, msg);
+	void log_uint8(string const& topic, Time const& time, uint8_t i) {
+		std_msgs::UInt8 msg;
+		msg.data = i;
+		bag_.write(topic, time, msg);
 
-      display_text_.add (time, topic);
-    }
+		display_text_.add(time, topic + "\n" + to_string(i));
+	}
 
-    void
-    log_uint8 (string const& topic,
-               Time const& time,
-               uint8_t i)
-    {
-      std_msgs::UInt8 msg;
-      msg.data = i;
-      bag_.write (topic, time, msg);
+	void log_string(string const& topic, Time const& time, string const& s) {
+		std_msgs::String msg;
+		msg.data = s;
+		bag_.write(topic, time, msg);
 
-      display_text_.add (time, topic + "\n" + to_string (i));
-    }
+		display_text_.add(time, topic + "\n" + s);
+	}
 
-    void
-    log_string (string const& topic,
-                Time const& time,
-                string const& s)
-    {
-      std_msgs::String msg;
-      msg.data = s;
-      bag_.write (topic, time, msg);
+	void log_score(string const& topic, Time const& time, roah_rsbb::Score const& msg) {
+		bag_.write(topic, time, msg);
 
-      display_text_.add (time, topic + "\n" + s);
-    }
+		display_text_.add(time, topic + "\n" + msg.group + ", " + msg.desc + " -> " + to_string(msg.value));
+	}
 
-    void
-    log_score (string const& topic,
-               Time const& time,
-               roah_rsbb::Score const& msg)
-    {
-      bag_.write (topic, time, msg);
+	void set_state(Time const& now, roah_rsbb_msgs::BenchmarkState::State const& state, string const& desc) {
+		string state_name;
+		switch (state) {
+		case roah_rsbb_msgs::BenchmarkState_State_STOP:
+			state_name = "BenchmarkState_State_STOP";
+			break;
+		case roah_rsbb_msgs::BenchmarkState_State_PREPARE:
+			state_name = "BenchmarkState_State_PREPARE";
+			break;
+		case roah_rsbb_msgs::BenchmarkState_State_GOAL_TX:
+			state_name = "BenchmarkState_State_GOAL_TX";
+			break;
+		case roah_rsbb_msgs::BenchmarkState_State_WAITING_RESULT:
+			state_name = "BenchmarkState_State_WAITING_RESULT";
+			break;
+		}
 
-      display_text_.add (time, topic + "\n" + msg.group + ", " + msg.desc + " -> " + to_string (msg.value));
-    }
+		log_uint8("/rsbb_log/rsbb_state", now, state);
+		log_string("/rsbb_log/rsbb_state_str", now, state_name);
+		log_string("/rsbb_log/rsbb_state_desc", now, desc);
+	}
 
-    void
-    set_state (Time const& now,
-               roah_rsbb_msgs::BenchmarkState::State const& state,
-               string const& desc)
-    {
-      string state_name;
-      switch (state) {
-        case roah_rsbb_msgs::BenchmarkState_State_STOP:
-          state_name = "BenchmarkState_State_STOP";
-          break;
-        case roah_rsbb_msgs::BenchmarkState_State_PREPARE:
-          state_name = "BenchmarkState_State_PREPARE";
-          break;
-        case roah_rsbb_msgs::BenchmarkState_State_GOAL_TX:
-          state_name = "BenchmarkState_State_GOAL_TX";
-          break;
-        case roah_rsbb_msgs::BenchmarkState_State_WAITING_RESULT:
-          state_name = "BenchmarkState_State_WAITING_RESULT";
-          break;
-      }
-
-      log_uint8 ("/rsbb_log/rsbb_state", now, state);
-      log_string ("/rsbb_log/rsbb_state_str", now, state_name);
-      log_string ("/rsbb_log/rsbb_state_desc", now, desc);
-    }
-
-    void
-    end ()
-    {
-      log_empty ("/rsbb_log/end", Time::now());
-    }
+	void end() {
+		log_empty("/rsbb_log/end", Time::now());
+	}
 
 #if 0
-    template<class T>
-    void write (std::string const& topic, ros::Time const& time, T const& msg,
-                boost::shared_ptr<ros::M_string> connection_header = boost::shared_ptr<ros::M_string>())
-    {
-      bag_.write<T> (topic, time, msg, connection_header);
-    }
+	template<class T>
+	void write (std::string const& topic, ros::Time const& time, T const& msg,
+			boost::shared_ptr<ros::M_string> connection_header = boost::shared_ptr<ros::M_string>())
+	{
+		bag_.write<T> (topic, time, msg, connection_header);
+	}
 #endif
 };
 
+class ReceiverRepeated {
+	set<string> last_;
+	RsbbLog& log_;
+	string topic_;
+	DisplayText& display_text_;
 
+public:
+	ReceiverRepeated(RsbbLog& log, string const& topic, DisplayText& display_text) :
+			log_(log), topic_(topic), display_text_(display_text) {
+	}
 
-class ReceiverRepeated
-{
-    set <string> last_;
-    RsbbLog& log_;
-    string topic_;
-    DisplayText& display_text_;
-
-  public:
-    ReceiverRepeated (RsbbLog& log,
-                      string const& topic,
-                      DisplayText& display_text)
-      : log_ (log)
-      , topic_ (topic)
-      , display_text_ (display_text)
-    {
-    }
-
-    void
-    receive (Time const& now,
-             ::google::protobuf::RepeatedPtrField<string> const& field)
-    {
-      set<string> this_set;
-      for (string const& s : field) {
-        this_set.insert (s);
-        if (0 == last_.count (s)) {
-          display_text_.add (now, topic_ + "\n" + s);
-          log_.log_string (topic_, now, s);
-        }
-      }
-      last_ = move (this_set);
-    }
+	void receive(Time const& now, ::google::protobuf::RepeatedPtrField<string> const& field) {
+		set<string> this_set;
+		for (string const& s : field) {
+			this_set.insert(s);
+			if (0 == last_.count(s)) {
+				display_text_.add(now, topic_ + "\n" + s);
+				log_.log_string(topic_, now, s);
+			}
+		}
+		last_ = move(this_set);
+	}
 };
 
+class TimeControl {
+	CoreSharedState& ss_;
+	Duration timeout_;
 
+	Time start_time_;
 
-class TimeControl
-{
-    CoreSharedState& ss_;
-    Duration timeout_;
+	Duration delay_acc_;bool paused_;
+	Time pause_start_;
 
-    Time start_time_;
+	Timer timeout_timer_;
+	const function<void(void)> timeout_2_;
 
-    Duration delay_acc_;
-    bool paused_;
-    Time pause_start_;
+	void timeout(const TimerEvent& timer_event) {
+		if (paused_) {
+			return;
+		}
 
-    Timer timeout_timer_;
-    const function<void (void) > timeout_2_;
+		if (start_timer(timer_event.current_real)) {
+			return;
+		}
 
-    void
-    timeout (const TimerEvent& timer_event)
-    {
-      if (paused_) {
-        return;
-      }
+		timeout_2_();
+	}
 
-      if (start_timer (timer_event.current_real)) {
-        return;
-      }
+	bool start_timer(Time const& now) {
+		Duration until_timeout = get_until_timeout(now);
+		timeout_timer_.stop();
+		if (until_timeout > Duration()) {
+			timeout_timer_ = ss_.nh.createTimer(until_timeout, &TimeControl::timeout, this, true, true);
+			return true;
+		}
+		return false;
+	}
 
-      timeout_2_();
-    }
+public:
+	TimeControl(CoreSharedState& ss, Duration timeout, function<void(void)> const& timeout_2) :
+			ss_(ss), timeout_(timeout), delay_acc_(), paused_(false), timeout_timer_(), timeout_2_(timeout_2) {
+	}
 
-    bool
-    start_timer (Time const& now)
-    {
-      Duration until_timeout = get_until_timeout (now);
-      timeout_timer_.stop();
-      if (until_timeout > Duration ()) {
-        timeout_timer_ = ss_.nh.createTimer (until_timeout, &TimeControl::timeout, this, true, true);
-        return true;
-      }
-      return false;
-    }
+	~TimeControl() {
+		timeout_timer_.stop();
+	}
 
-  public:
-    TimeControl (CoreSharedState& ss,
-                 Duration timeout,
-                 function<void (void) > const& timeout_2)
-      : ss_ (ss)
-      , timeout_ (timeout)
-      , delay_acc_()
-      , paused_ (false)
-      , timeout_timer_ ()
-      , timeout_2_ (timeout_2)
-    {
-    }
+	void start_reset(Time const& now) {
+		start_time_ = now;
+		delay_acc_ = Duration();
+		paused_ = false;
+		start_timer(now);
+	}
 
-    ~TimeControl()
-    {
-      timeout_timer_.stop();
-    }
+	void start_reset(Time const& now, Duration const& new_timeout) {
+		timeout_ = new_timeout;
+		start_reset(now);
+	}
 
-    void
-    start_reset (Time const& now)
-    {
-      start_time_ = now;
-      delay_acc_ = Duration();
-      paused_ = false;
-      start_timer (now);
-    }
+	void stop_pause(Time const& now) {
+		if (paused_) {
+			return;
+		}
 
-    void
-    start_reset (Time const& now,
-                 Duration const& new_timeout)
-    {
-      timeout_ = new_timeout;
-      start_reset (now);
-    }
+		paused_ = true;
+		pause_start_ = now;
+		timeout_timer_.stop();
+	}
 
-    void
-    stop_pause (Time const& now)
-    {
-      if (paused_) {
-        return;
-      }
+	void resume(Time const& now) {
+		if (!paused_) {
+			return;
+		}
 
-      paused_ = true;
-      pause_start_ = now;
-      timeout_timer_.stop();
-    }
+		delay_acc_ += (now - pause_start_);
+		paused_ = false;
+		start_timer(now);
+	}
 
-    void
-    resume (Time const& now)
-    {
-      if (! paused_) {
-        return;
-      }
+	void resume_hot(Time const& now) {
+		if (!paused_) {
+			return;
+		}
 
-      delay_acc_ += (now - pause_start_);
-      paused_ = false;
-      start_timer (now);
-    }
+		// Does not accumulate, stopped time actually counts in resets
+		paused_ = false;
+		start_timer(now);
+	}
 
-    void
-    resume_hot (Time const& now)
-    {
-      if (! paused_) {
-        return;
-      }
+	Duration get_until_timeout(Time const& now) {
+		return start_time_ + timeout_ + delay_acc_ - (paused_ ? pause_start_ : now);
+	}
 
-      // Does not accumulate, stopped time actually counts in resets
-      paused_ = false;
-      start_timer (now);
-    }
+	Duration get_until_timeout_for_timeout(Time const& now, Duration const& timeout) {
+		return start_time_ + timeout + delay_acc_ - (paused_ ? pause_start_ : now);
+	}
 
-    Duration
-    get_until_timeout (Time const& now)
-    {
-      return start_time_ + timeout_ + delay_acc_ - (paused_ ? pause_start_ : now);
-    }
-
-    Duration
-    get_until_timeout_for_timeout (Time const& now,
-                                   Duration const& timeout)
-    {
-      return start_time_ + timeout + delay_acc_ - (paused_ ? pause_start_ : now);
-    }
-
-    Duration
-    get_elapsed (Time const& now)
-    {
-      return (paused_ ? pause_start_ : now) - start_time_ - delay_acc_;
-    }
+	Duration get_elapsed(Time const& now) {
+		return (paused_ ? pause_start_ : now) - start_time_ - delay_acc_;
+	}
 };
 
 #endif
