@@ -240,6 +240,9 @@ public:
 	TimeControl(CoreSharedState& ss, Duration timeout, function<void(void)> const& timeout_2) :
 			ss_(ss), timeout_(timeout), delay_acc_(), paused_(false), timeout_timer_(), timeout_2_(timeout_2) {
 	}
+	TimeControl(CoreSharedState& ss, Duration timeout, bool paused, function<void(void)> const& timeout_2) :
+			ss_(ss), timeout_(timeout), delay_acc_(), paused_(paused), timeout_timer_(), timeout_2_(timeout_2) {
+	}
 
 	~TimeControl() {
 		timeout_timer_.stop();

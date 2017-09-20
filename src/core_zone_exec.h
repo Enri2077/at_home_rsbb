@@ -66,7 +66,7 @@ protected:
 	virtual void phase_exec(string const& desc) {
 		Time now = Time::now();
 
-		cout << endl << "phase_exec" << endl;
+		cout << "phase_exec" << endl;
 
 		if (phase_ == PHASE_PRE) {
 			time_.start_reset(now);
@@ -444,7 +444,43 @@ public:
 
 
 
-
+/*
+ * Functions:
+ *
+ *
+ * * Internal control functions:
+ *
+ *   - goal control functions:
+ * void begin_goal_execution();
+ * void end_goal_execution();
+ *
+ *   - phase control functions:
+ * void phase_exec(string const& desc);
+ * void phase_post(string const& desc);
+ *
+ *   - timeout control functions:
+ * void goal_timeout_callback();
+ * void global_timeout_callback();
+ *
+ *
+ * * GUI control functions:
+ * void start();
+ * void stop();
+ * void manual_operation_complete(string result);
+ *
+ *
+ * * Benchmark Script communication functions:
+ * bool execute_manual_operation_callback(rsbb_benchmarking_messages::ExecuteManualOperation::Request& req, rsbb_benchmarking_messages::ExecuteManualOperation::Response& res);
+ * bool execute_goal_callback(rsbb_benchmarking_messages::ExecuteGoal::Request& req, rsbb_benchmarking_messages::ExecuteGoal::Response& res);
+ * bool end_goal_callback(rsbb_benchmarking_messages::EndGoal::Request& req, rsbb_benchmarking_messages::EndGoal::Response& res);
+ * bool end_benchmark_callback(rsbb_benchmarking_messages::EndBenchmark::Request& req, rsbb_benchmarking_messages::EndBenchmark::Response& res);
+ *
+ *
+ * * Robot Communication functions:
+ * void receive_robot_state_2(Time const& now, roah_rsbb_msgs::RobotState const& msg);
+ *
+ *
+ */
 
 
 
@@ -468,9 +504,8 @@ class ExecutingExternallyControlledBenchmark: public ExecutingSingleRobotBenchma
 	string current_goal_payload_;
 	float current_goal_timeout_ = 0.0;
 
-	Duration total_timeout_;
-	TimeControl global_timeout_;
-	bool stopped_due_to_global_timeout_;
+	TimeControl time_; // TODO rename to goal_timeout_timer_
+	TimeControl global_timeout_; // TODO rename to global_timeout_timer_
 
 	rsbb_benchmarking_messages::BmBoxState::ConstPtr last_bmbox_state_;
 	rsbb_benchmarking_messages::BmBoxState::_state_type printStates_last_last_bmbox_state_;
@@ -492,91 +527,166 @@ public:
 		refbox_state_pub_(ss_.nh.advertise<rsbb_benchmarking_messages::RefBoxState> (bmbox_prefix(event) + "refbox_state", 1, true)),
 		bmbox_state_sub_(ss_.nh.subscribe(bmbox_prefix(event) + "bmbox_state", 1, &ExecutingExternallyControlledBenchmark::bmbox_state_callback, this)),
 
-		total_timeout_(event.benchmark.total_timeout),
-		global_timeout_(ss, event_.benchmark.total_timeout, boost::bind(&ExecutingExternallyControlledBenchmark::global_timeout_callback, this)),
-		stopped_due_to_global_timeout_(false),
+		time_(ss, event_.benchmark.timeout, true, boost::bind(&ExecutingExternallyControlledBenchmark::goal_timeout_callback, this)),
+
+		global_timeout_(ss, event_.benchmark.total_timeout, true, boost::bind(&ExecutingExternallyControlledBenchmark::global_timeout_callback, this)),
 
 		last_bmbox_state_(boost::make_shared<rsbb_benchmarking_messages::BmBoxState>())
-
-
 	{
-		cout << endl << endl << endl << endl << event << endl << "STARTING BENCHMARK: " << event.benchmark.code << endl;
-//		cout << endl << endl << "total timeout: " << to_qstring(total_timeout_).toStdString() << endl << endl;
-
-//		global_timeout_.start_reset(Time::now());
+		cout << endl << endl << endl << endl << endl << endl << endl << endl << "STARTING BENCHMARK: " << event.benchmark.code << endl << event << endl << endl << endl;
 	}
 
 
+
+	/***********************************
+	 *                                 *
+	 *   Internal control functions    *
+	 *                                 *
+	 ***********************************/
 
 	/*
-	 *   GUI control functions
-	 *
+	 * Starts the current goal
 	 */
-
-	void start() {
-
-		Time now = Time::now();
+	void start_goal_execution(){
 		printStates();
+		cout << "begin_goal_execution" << endl;
 
-		phase_exec("First exec_phase");
-		set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::READY);
-
-	}
-
-	void stop() { // TODO manage all cases (MO behaves strangely)
-
-		switch (state_) {
-		case roah_rsbb_msgs::BenchmarkState_State_STOP:
-			terminate_benchmark();
-			return;
-		case roah_rsbb_msgs::BenchmarkState_State_PREPARE:
-		case roah_rsbb_msgs::BenchmarkState_State_GOAL_TX:
-		case roah_rsbb_msgs::BenchmarkState_State_WAITING_RESULT:
-			phase_post("Benchmark Stopped by referee");
+		if(phase_ == PHASE_PRE){
+			ROS_ERROR("start_goal_execution: Requested goal execution in phase PHASE_PRE");
 			return;
 		}
 
-	}
-
-	void manual_operation_complete(string result) {
-
-		if (!(
-		 ((state_ 				== roah_rsbb_msgs::BenchmarkState_State_PREPARE)
-		||(state_ 				== roah_rsbb_msgs::BenchmarkState_State_STOP)
-		||(state_ 				== roah_rsbb_msgs::BenchmarkState_State_WAITING_RESULT)	  )
-		&&(refbox_state_		== rsbb_benchmarking_messages::RefBoxState::EXECUTING_MANUAL_OPERATION)))
-		{
+		if(!(refbox_state_ == rsbb_benchmarking_messages::RefBoxState::READY
+		&&(state_ == roah_rsbb_msgs::BenchmarkState_State_STOP
+		|| state_ == roah_rsbb_msgs::BenchmarkState_State_WAITING_RESULT))) {
 			printStates();
-			ROS_ERROR("manual_operation_complete(): could not terminate manual operation: inconsistent states");
+			ROS_ERROR("start_goal_execution: Requested goal execution with inconsistent states (RefBox state not READY, or benchmark state not STOP nor WAITING_RESULT (from previous goal))");
 			return;
 		}
 
-		printStates();
 		Time now = Time::now();
 
-		manual_operation_.clear();
-		set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::READY, result);
+		// resume the global timeout timer, that needs to tick when the robot is executing a goal (the prepare time counts for the timeout)
+		global_timeout_.resume(now);
+		cout << "start_goal_execution:\t\t global_timeout_.resume" << ": " << to_qstring(global_timeout_.get_until_timeout(Time::now())).toStdString() << endl << endl;
+
+		// reset the goal timeout with the new value for this goal
+		if(current_goal_timeout_ > 0){
+
+			// If a goal timeout was provided by the benchmark script, use it
+			time_.start_reset(now, Duration(current_goal_timeout_));
+			cout << "start_goal_execution: setting bmbox timeout:\t" << to_qstring(time_.get_until_timeout(Time::now())).toStdString() << endl;
+
+		} else if (event_.benchmark.timeout < event_.benchmark.total_timeout) {
+
+			// else, if a goal timeout is specified in the configuration then use this one
+			time_.start_reset(now, event_.benchmark.timeout);
+			cout << "start_goal_execution: setting default goal timeout:\t" << to_qstring(time_.get_until_timeout(Time::now())).toStdString() << endl;
+
+		} else {
+
+			// otherwise use the total timeout
+			time_.start_reset(now, event_.benchmark.total_timeout);
+			cout << "start_goal_execution: setting default total timeout:\t" << to_qstring(time_.get_until_timeout(Time::now())).toStdString() << endl;
+		}
+
+		set_state(now, roah_rsbb_msgs::BenchmarkState_State_PREPARE, "Requested the robot to prepare for a new goal");
+		set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::TRANSMITTING_GOAL);
+
+}
+
+	/*
+	 * Terminates the current goal (basically stops the timeout timers)
+	 */
+	void end_goal_execution() {
+		printStates();
+		cout << "end_goal_execution" << endl;
+
+		Time now = Time::now();
+
+		time_.stop_pause(now);
+		global_timeout_.stop_pause(now);
+		cout << "end_goal_execution:\t\t time_.stop_pause" << ": " << to_qstring(time_.get_until_timeout(now)).toStdString() << endl << endl;
+		cout << "end_goal_execution:\t\t global_timeout_.stop_pause" << ": " << to_qstring(global_timeout_.get_until_timeout(now)).toStdString() << endl << endl;
+
+		current_goal_payload_ = "";
+		current_goal_timeout_ = 0;
 
 	}
 
+	/*
+	 * Starts the benchmark by setting the RefBox states
+	 */
+	void phase_exec(string const& desc) {
+		printStates();
+		cout << "phase_exec" << endl;
 
+		phase_ = PHASE_EXEC;
+		set_refbox_state(Time::now(), rsbb_benchmarking_messages::RefBoxState::READY);
+
+	}
 
 	/*
-	 *   Internal control functions
-	 *
+	 * Terminates the benchmark based on RefBox states
+	 * by telling to stop to the robot and to the script, and if the benchmark was completed then destroys everything
 	 */
+	void phase_post(string const& desc) {
+		printStates();
+		cout << "phase_post" << endl;
+
+		Time now = Time::now();
+
+		phase_ = PHASE_POST;
+		set_state(now, roah_rsbb_msgs::BenchmarkState_State_STOP, desc);
+
+		// if the benchmark has ended, it can be safely terminated by calling end_(), that destroys everything.
+		if(refbox_state_ == rsbb_benchmarking_messages::RefBoxState::RECEIVED_SCORE){ // TODO RefBoxState::END
+			terminate_benchmark();
+		}
+
+	}
+
+	/*
+	 * Called when a goal timeout expires
+	 */
+	void goal_timeout_callback() {
+		cout << "timeout_callback" << endl;
+
+		if (phase_ != PHASE_EXEC) return;
+
+		set_refbox_state(Time::now(), rsbb_benchmarking_messages::RefBoxState::READY, "goal timeout"); // TODO RefBoxState::TIMEOUT
+		end_goal_execution();
+
+		// advertise that a timeout has occurred
+		timeout_pub_.publish(std_msgs::Empty());
+
+	}
+
+	/*
+	 * Called when the global timeout expires
+	 */
+	void global_timeout_callback() {
+		cout << "global_timeout_callback" << endl;
+
+		if (phase_ != PHASE_EXEC) return;
+
+		// terminate the benchmark by calling phase_post
+		set_refbox_state(Time::now(), rsbb_benchmarking_messages::RefBoxState::READY, "goal timeout"); // TODO RefBoxState::GLOBAL_TIMEOUT
+		end_goal_execution();
+
+		phase_post("Stopped due to global timeout!");
+
+		// advertise that a timeout has occurred
+		timeout_pub_.publish(std_msgs::Empty());
+
+	}
 
 	void fill(Time const& now, roah_rsbb::ZoneState& zone) {
 
 		switch (phase_) {
-		case PHASE_PRE:
-			zone.timer = event_.benchmark.timeout;
-			break;
-		case PHASE_EXEC:
-			zone.timer = time_.get_until_timeout(now);
-			break;
-		case PHASE_POST:
-			break;
+		case PHASE_PRE:		zone.timer = event_.benchmark.timeout; break;
+		case PHASE_EXEC:	zone.timer = time_.get_until_timeout(now); break;
+		case PHASE_POST:	break;
 		}
 
 		zone.state = state_desc_;
@@ -617,79 +727,6 @@ public:
 
 	void fill_2(Time const& now, roah_rsbb::ZoneState& zone){}
 
-	void phase_exec(string const& desc) {
-
-		phase_ = PHASE_EXEC;
-
-		cout << endl << "ExecutingExternallyControlledBenchmark::phase_exec" << endl;
-
-		Time now = Time::now();
-		switch(phase_){
-		case PHASE_PRE:
-			time_.start_reset(now);
-			global_timeout_.start_reset(now); // TODO continue instead
-			cout << "phase_exec:\t\t time_.start_reset\t" << ": " << to_qstring(time_.get_until_timeout(now)).toStdString() << endl << endl;
-			cout << "phase_exec:\t\t global_timeout_.start_reset" << ": " << to_qstring(global_timeout_.get_until_timeout(now)).toStdString() << endl << endl;
-			break;
-
-		case PHASE_EXEC:
-		case PHASE_POST:
-			time_.resume_hot(now);
-			global_timeout_.resume_hot(now);
-			cout << "phase_exec:\t\t time_.resume_hot\t" << ": " << to_qstring(time_.get_until_timeout(Time::now())).toStdString() << endl << endl;
-			cout << "phase_exec:\t\t global_timeout_.resume_hot" << ": " << to_qstring(global_timeout_.get_until_timeout(Time::now())).toStdString() << endl << endl;
-			break;
-		}
-
-		stopped_due_to_timeout_ = false;
-
-		update_timeout(now);
-
-	}
-
-	void phase_post(string const& desc) {
-
-		Time now = Time::now();
-		printStates();
-
-		phase_ = PHASE_POST;
-
-		set_state(now, roah_rsbb_msgs::BenchmarkState_State_STOP, desc);
-
-		time_.stop_pause(now);
-		global_timeout_.stop_pause(now);
-		cout << "phase_post:\t\t time_.stop_pause" << ": " << to_qstring(time_.get_until_timeout(now)).toStdString() << endl << endl;
-		cout << "phase_post:\t\t global_timeout_.stop_pause" << ": " << to_qstring(global_timeout_.get_until_timeout(now)).toStdString() << endl << endl;
-
-		printStates();
-
-		if (refbox_state_ == rsbb_benchmarking_messages::RefBoxState::RECEIVED_SCORE) {
-
-			terminate_benchmark();
-
-		} else {
-
-			if (stopped_due_to_timeout_) {
-				// Partial timeout
-
-				cout << endl << "phase_post: PARTIAL TIMEOUT" << endl << endl;
-
-				set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::READY, "reason: timeout");
-				phase_exec("Robot timed out a goal, trying the next one...");
-
-			} else if(stopped_due_to_global_timeout_) {
-				cout << endl << "phase_post: GLOBAL TIMEOUT" << endl << endl;
-			} else {
-				// Ended by referee or global timeout
-
-				cout << endl << "phase_post: ENDED BY REFEREE" << endl << endl;
-
-				set_state(now, roah_rsbb_msgs::BenchmarkState_State_STOP, "Global timeout.");
-				set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::END, "reason: stop");
-			}
-		}
-	}
-
 	void set_refbox_state(Time const& now, rsbb_benchmarking_messages::RefBoxState::_state_type refbox_state, string const& payload = "") {
 
 		if (refbox_state == refbox_state_ && payload == refbox_state_payload_) return;
@@ -723,79 +760,66 @@ public:
 
 	}
 
-	void timeout_2() {
+	void clear_manual_operation(){
 
-		cout << endl << "timeout_callback" << endl;
-
-		if (phase_ != PHASE_EXEC) return;
-
-		stopped_due_to_timeout_ = true;
-		phase_post("Stopped due to timeout!");
-
-		timeout_pub_.publish(std_msgs::Empty());
+		manual_operation_.clear();
 
 	}
 
-	void global_timeout_callback() {
 
-		cout << endl << "global_timeout_callback" << endl;
 
-		stopped_due_to_global_timeout_ = true;
-		phase_post("Stopped due to global timeout!");
 
-		timeout_pub_.publish(std_msgs::Empty());
+	/*****************************
+	 *                            *
+	 *   GUI control functions    *
+	 *                            *
+	 *****************************/
+
+	void start() {
+
+		phase_exec("");
 
 	}
 
-	void update_timeout(Time const& now) {
+	void stop() {
 
-		if(current_goal_timeout_ > 0){
-			// If a goal timeout was provided by the BmBox, use it
+		set_refbox_state(Time::now(), rsbb_benchmarking_messages::RefBoxState::END, "goal timeout"); // TODO RefBoxState::STOP
+		end_goal_execution();
 
-			cout << endl << "update_timeout: setting bmbox timeout: " << current_goal_timeout_ << endl;
-			time_.start_reset(now, Duration(current_goal_timeout_));
-			cout << "update_timeout:\t\t time_.start_reset" << ": " << to_qstring(time_.get_until_timeout(Time::now())).toStdString() << endl << endl;
+		phase_post("");
 
-		} else if (event_.benchmark.timeout < total_timeout_) {
-			// else, if a goal timeout is specified in the configuration then use this one
-
-			cout << endl << "update_timeout: setting default goal timeout: " << event_.benchmark.timeout << endl;
-			time_.start_reset(now, event_.benchmark.timeout);
-			cout << "update_timeout:\t\t time_.start_reset" << ": " << to_qstring(time_.get_until_timeout(Time::now())).toStdString() << endl << endl;
-
-		} else {
-			// otherwise use the total timeout
-
-			cout << endl << "update_timeout: setting default total timeout: " << total_timeout_ << endl;
-			time_.start_reset(now, total_timeout_);
-			cout << "update_timeout:\t\t time_.start_reset" << ": " << to_qstring(time_.get_until_timeout(Time::now())).toStdString() << endl << endl;
-		}
 	}
 
-
-
-	/*
-	 *   Benchmark Script communication functions
-	 *
-	 */
-
-	void bmbox_state_callback(rsbb_benchmarking_messages::BmBoxState::ConstPtr const& msg) {
-		Time now = Time::now();
-
-		if (msg->state == last_bmbox_state_->state) return;
-
-		last_bmbox_state_ = msg;
-
+	void manual_operation_complete(string result) {
 		printStates();
 
+		if (!(
+		 ((state_ 				== roah_rsbb_msgs::BenchmarkState_State_PREPARE)
+		||(state_ 				== roah_rsbb_msgs::BenchmarkState_State_STOP)
+		||(state_ 				== roah_rsbb_msgs::BenchmarkState_State_WAITING_RESULT)	  )
+		&&(refbox_state_		== rsbb_benchmarking_messages::RefBoxState::EXECUTING_MANUAL_OPERATION)))
+		{
+			printStates();
+			ROS_ERROR("manual_operation_complete(): could not terminate manual operation: inconsistent states");
+			return;
+		}
+
+		set_refbox_state(Time::now(), rsbb_benchmarking_messages::RefBoxState::READY, result);
+		clear_manual_operation();
 	}
+
+
+
+	/*************************************************
+	 *                                               *
+	 *   Benchmark Script communication functions    *
+	 *                                               *
+	 ************************************************/
 
 	bool execute_manual_operation_callback(rsbb_benchmarking_messages::ExecuteManualOperation::Request& req, rsbb_benchmarking_messages::ExecuteManualOperation::Response& res) {
-
-		Time now = Time::now();
-		res.result.data = false;
-
 		printStates();
+
+		res.result.data = false;
 
 		// BmBox requests a Manual Operation
 		if(refbox_state_ != rsbb_benchmarking_messages::RefBoxState::READY){
@@ -807,25 +831,16 @@ public:
 		// The manual operation is described by the string in the payload of the message
 		manual_operation_ = req.request.data;
 
-		// Stop the main timer
-		time_.stop_pause(now);
-		global_timeout_.stop_pause(now);
-		cout << "execute_manual_operation_callback:\t\t time_.stop_pause" << ": " << to_qstring(time_.get_until_timeout(Time::now())).toStdString() << endl << endl;
-		cout << "execute_manual_operation_callback:\t\t global_timeout_.stop_pause" << ": " << to_qstring(global_timeout_.get_until_timeout(Time::now())).toStdString() << endl << endl;
-
-		set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::EXECUTING_MANUAL_OPERATION);
-		cout << endl << "BmBox requests a Manual Operation (service callback): " << manual_operation_ << endl;
-
+		set_refbox_state(Time::now(), rsbb_benchmarking_messages::RefBoxState::EXECUTING_MANUAL_OPERATION);
 		res.result.data = true;
 
 		return true;
 	}
 
 	bool execute_goal_callback(rsbb_benchmarking_messages::ExecuteGoal::Request& req, rsbb_benchmarking_messages::ExecuteGoal::Response& res) {
-
-		Time now = Time::now();
 		printStates();
 
+		Time now = Time::now();
 		res.result.data = false;
 
 		if(!(refbox_state_ == rsbb_benchmarking_messages::RefBoxState::READY
@@ -841,25 +856,36 @@ public:
 		if(req.timeout.data > 0) current_goal_timeout_ = req.timeout.data;
 
 		// start the goal execution
-		phase_exec("Robot preparing for new goal!");
-		set_state(now, roah_rsbb_msgs::BenchmarkState_State_PREPARE, "TODO");
-		set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::TRANSMITTING_GOAL);
+		start_goal_execution();
 
 		if(state_ == roah_rsbb_msgs::BenchmarkState_State_WAITING_RESULT){
-			cout << endl << "execute_goal_callback: BmBox requests the start of a goal execution (state: WAITING_RESULT) goal: " << req.request.data << endl;
+			cout << "execute_goal_callback: BmBox requests the start of a goal execution (state: WAITING_RESULT) goal: " << req.request.data << endl;
 		} else if(state_ == roah_rsbb_msgs::BenchmarkState_State_STOP){
-			cout << endl << "execute_goal_callback: BmBox requests the start of a goal execution (state: STOP) goal: " << req.request.data << endl;
+			cout << "execute_goal_callback: BmBox requests the start of a goal execution (state: STOP) goal: " << req.request.data << endl;
 		}
 
 		res.result.data = true;
 		return true;
 	}
 
-	bool end_benchmark_callback(rsbb_benchmarking_messages::EndBenchmark::Request& req, rsbb_benchmarking_messages::EndBenchmark::Response& res) {
+	/* TODO
+	 * Called by the benchmark script in case of a goal timeout to restore the RefBox goal state to READY
+	 */
+//	bool end_goal_callback(rsbb_benchmarking_messages::EndGoal::Request& req, rsbb_benchmarking_messages::EndGoal::Response& res){
+//		cout << "end_goal_callback" << endl << endl;
+//
+//		set_refbox_state(Time::now(), rsbb_benchmarking_messages::RefBoxState::READY);
+//
+//		return true;
+//	}
 
-		Time now = Time::now();
+	/*
+	 * Called by the benchmark script when the benchmark is ended and it can be terminated
+	 */
+	bool end_benchmark_callback(rsbb_benchmarking_messages::EndBenchmark::Request& req, rsbb_benchmarking_messages::EndBenchmark::Response& res) {
 		printStates();
 
+		Time now = Time::now();
 		res.result.data = false;
 
 		if(refbox_state_ != rsbb_benchmarking_messages::RefBoxState::READY) {
@@ -869,22 +895,32 @@ public:
 		}
 
 		// BmBox requests to end the benchmark
-		set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::RECEIVED_SCORE);
+		set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::RECEIVED_SCORE); // TODO RefBoxState::END , that means the benchmark has ended naturally, so there is a score and the whole thing can be destroyed
+
 		phase_post("Benchmark complete! Received score from BmBox: " + req.score.data);
 
 		res.result.data = true;
 		return true;
 	}
 
+	void bmbox_state_callback(rsbb_benchmarking_messages::BmBoxState::ConstPtr const& msg) {
+
+		printStates();
+		if (msg->state == last_bmbox_state_->state) return;
+		last_bmbox_state_ = msg;
+		printStates();
+
+	}
 
 
-	/*
-	 *   Robot Communication functions
-	 *
-	 */
+
+	/*************************************
+	 *                                    *
+	 *   Robot Communication functions    *
+	 *                                    *
+	 *************************************/
 
 	void receive_robot_state_2(Time const& now, roah_rsbb_msgs::RobotState const& msg) {
-
 		printStates_robot_state_ = msg.robot_state();
 		printStates();
 
@@ -899,13 +935,7 @@ public:
 
 				if (refbox_state_ == rsbb_benchmarking_messages::RefBoxState::TRANSMITTING_GOAL) {
 
-					cout << endl << "receive_robot_state_2: robot finished preparation, transmitting goal" << endl;
-
-					// Resume main timer
-					time_.resume(now);
-					global_timeout_.resume(now);
-					cout << "receive_robot_state_2:\t\t time_.resume" << ": " << to_qstring(time_.get_until_timeout(Time::now())).toStdString() << endl << endl;
-					cout << "receive_robot_state_2:\t\t global_timeout_.resume" << ": " << to_qstring(global_timeout_.get_until_timeout(Time::now())).toStdString() << endl << endl;
+					cout << "receive_robot_state_2: robot finished preparation, transmitting goal" << endl;
 
 					// Update Benchmark state to GOAL_TX
 					set_state(now, roah_rsbb_msgs::BenchmarkState_State_GOAL_TX, "Robot finished preparation, received goal from BmBox, starting execution");
@@ -925,13 +955,11 @@ public:
 
 				if (msg.robot_state() == roah_rsbb_msgs::RobotState_State_EXECUTING) {
 
-					cout << endl << "receive_robot_state_2: robot received goal, started execution" << endl;
+					cout << "receive_robot_state_2: robot received goal, started execution" << endl;
 
 					set_state(now, roah_rsbb_msgs::BenchmarkState_State_WAITING_RESULT, "Robot received goal, waiting for result");
 					set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::EXECUTING_GOAL);
 
-					current_goal_payload_ = "";
-					current_goal_timeout_ = 0;
 				}
 
 			} else {
@@ -948,22 +976,16 @@ public:
 
 				if (msg.robot_state() == roah_rsbb_msgs::RobotState_State_RESULT_TX) {
 
-					cout << endl << "receive_robot_state_2: received goal result" << endl;
+					cout << "receive_robot_state_2: received goal result" << endl;
 
-					time_.stop_pause(now);
-					global_timeout_.stop_pause(now);
-					cout << "receive_robot_state_2:\t\t time_.stop_pause" << ": " << to_qstring(time_.get_until_timeout(Time::now())).toStdString() << endl << endl;
-					cout << "receive_robot_state_2:\t\t global_timeout_.stop_pause" << ": " << to_qstring(global_timeout_.get_until_timeout(Time::now())).toStdString() << endl << endl;
+					end_goal_execution();
 
-					if(msg.has_generic_result()){
-						cout << endl << "receive_robot_state_2: result: " << msg.generic_result() << endl;
-						set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::READY, msg.generic_result());
-					} else {
-						set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::READY);
-					}
+					cout << "receive_robot_state_2: result: " << msg.generic_result() << endl;
+					set_refbox_state(now, rsbb_benchmarking_messages::RefBoxState::READY, msg.has_generic_result()?msg.generic_result():"");
 
 				}
-			} else if (refbox_state_ == rsbb_benchmarking_messages::RefBoxState::EXECUTING_MANUAL_OPERATION) {
+
+			} else if (refbox_state_ == rsbb_benchmarking_messages::RefBoxState::EXECUTING_MANUAL_OPERATION) { // TODO this won't be necessary when states are independent
 				// do nothing. This happens during a manual operation after the robot completed some goals since the robot remains in the RESULT_TX state and the Benchmark in the WAITING_RESULT state.
 			} else {
 				ROS_ERROR("BenchmarkState_State_WAITING_RESULT and NOT RefBoxState::EXECUTING_GOAL (or RefBoxState::EXECUTING_MANUAL_OPERATION)");
@@ -990,7 +1012,7 @@ public:
 		printStates_last_benchmark_state_ = state_;
 		printStates_last_robot_state_ = printStates_robot_state_;
 
-		cout << "BB ";
+		cout << "\tBB ";
 		switch (last_bmbox_state_->state) {
 		case rsbb_benchmarking_messages::BmBoxState::COMPLETED_MANUAL_OPERATION:	cout << "COMPLETED_MO      ";	 	break;
 		case rsbb_benchmarking_messages::BmBoxState::END:							cout << "END               "; 		break;
