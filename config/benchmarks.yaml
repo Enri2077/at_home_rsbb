@@ -80,5 +80,5 @@
   desc: Simple Test Benchmark
   code: STB
   timeout: 30.000
-  total_timeout: 90.0
+  total_timeout: 50.0
 
